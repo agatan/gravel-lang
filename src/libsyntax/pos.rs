@@ -2,9 +2,9 @@ use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct Pos {
-    file_name: Rc<String>,
-    line: i32,
-    column: i32,
+    pub file_name: Rc<String>,
+    pub line: i32,
+    pub column: i32,
 }
 
 pub trait HasPos {

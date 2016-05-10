@@ -1,6 +1,6 @@
 use pos::{Pos, HasPos};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Name(pub u32);
 
 #[derive(Debug)]

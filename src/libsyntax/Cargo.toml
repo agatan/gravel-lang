@@ -9,4 +9,5 @@ path = "lib.rs"
 crate-type = ["dylib"]
 
 [dependencies]
-
+combine = "~1.2.0"
+combine-language = "~0.9.0"

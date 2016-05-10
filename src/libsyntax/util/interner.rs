@@ -115,13 +115,13 @@ impl StrInterner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use symbol::Name;
+    use ast::Name;
 
     #[test]
     #[should_panic]
     fn empty() {
         let i = StrInterner::new();
-        i.get(Name(3))
+        i.get(Name(3));
     }
 
     #[test]
