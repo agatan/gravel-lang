@@ -88,26 +88,31 @@ impl<'a, I> Context<'a, I>
     }
 
     // expression
-    pub fn integer(&self, input: State<I>) -> ParseResult<i64, I> {
-        self.lang_env.integer().parse_state(input)
+    pub fn integer(&self, input: State<I>) -> ParseResult<Expr, I> {
+        self.with_pos(self.lang_env.integer().map(|i| ExprNode::IntLit(i))).parse_state(input)
     }
 
-    pub fn boolean(&self, input: State<I>) -> ParseResult<bool, I> {
-        self.lang_env
-            .reserved("true")
-            .map(|_| true)
-            .or(self.lang_env.reserved("false").map(|_| false))
+    pub fn boolean(&self, input: State<I>) -> ParseResult<Expr, I> {
+        self.with_pos(self.lang_env
+                          .reserved("true")
+                          .map(|_| ExprNode::BoolLit(true))
+                          .or(self.lang_env.reserved("false").map(|_| ExprNode::BoolLit(false))))
+            .parse_state(input)
+    }
+
+    pub fn var(&self, input: State<I>) -> ParseResult<Expr, I> {
+        self.with_pos(env_parser(self, Context::<'a, I>::ident).map(|name| ExprNode::Var(name)))
             .parse_state(input)
     }
 
     pub fn primary_expr(&self, input: State<I>) -> ParseResult<Expr, I> {
-        let boolean = env_parser(self, Context::<'a, I>::boolean).map(|t| ExprNode::BoolLit(t));
-        let integer = env_parser(self, Context::<'a, I>::integer).map(|v| ExprNode::IntLit(v));
-        let var = env_parser(self, Context::<'a, I>::ident).map(|name| ExprNode::Var(name));
+        let integer = env_parser(self, Context::<'a, I>::integer);
+        let boolean = env_parser(self, Context::<'a, I>::boolean);
+        let var = env_parser(self, Context::<'a, I>::var);
         let parens = between(self.lang_env.lex(token('(')),
                              self.lang_env.lex(token(')')),
                              env_parser(self, Context::<'a, I>::expression));
-        self.with_pos(boolean.or(integer).or(var)).or(parens).parse_state(input)
+        boolean.or(integer).or(var).or(parens).parse_state(input)
     }
 
     pub fn postfix_expr(&self, input: State<I>) -> ParseResult<Expr, I> {
@@ -154,16 +159,6 @@ mod tests {
     use combine::*;
 
     #[test]
-    fn integer() {
-        let interner = StrInterner::new();
-        let file = Rc::new("test".to_owned());
-        let ctx = Context::<&str>::new(file, &interner);
-
-        let result = env_parser(&ctx, Context::integer).parse("123");
-        assert_eq!(result, Ok((123, "")));
-    }
-
-    #[test]
     fn identifier() {
         let interner = StrInterner::new();
         let file = Rc::new("test".to_owned());
@@ -175,21 +170,11 @@ mod tests {
     }
 
     #[test]
-    fn boolean() {
-        let interner = StrInterner::new();
-        let file = Rc::new("test".to_owned());
-        let ctx = Context::<&str>::new(file, &interner);
-
-        let result = env_parser(&ctx, Context::boolean).parse("true");
-        assert_eq!(result, Ok((true, "")));
-    }
-
-    #[test]
     fn primary_expr() {
         let interner = StrInterner::new();
         let file = Rc::new("test".to_owned());
         let ctx = Context::<&str>::new(file, &interner);
-        let mut parser = env_parser(&ctx, Context::primary_expr);
+        let mut parser = env_parser(&ctx, Context::expression);
 
         assert_eq!(parser.parse("true").unwrap().0.node,
                    ExprNode::BoolLit(true));
@@ -201,7 +186,7 @@ mod tests {
         let interner = StrInterner::new();
         let file = Rc::new("test".to_owned());
         let ctx = Context::<&str>::new(file, &interner);
-        let mut parser = env_parser(&ctx, Context::postfix_expr);
+        let mut parser = env_parser(&ctx, Context::expression);
 
         assert_eq!(parser.parse("hoge (1, 2, 3) ( f() )").unwrap().1, "");
     }
