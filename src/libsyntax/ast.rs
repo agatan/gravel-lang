@@ -67,7 +67,7 @@ pub struct CallData {
 #[derive(Debug, PartialEq)]
 pub struct ConstructData {
     pub name: Name,
-    pub values: Vec<(Name, Box<Expr>)>,
+    pub values: Vec<(Name, Expr)>,
 }
 
 #[derive(Debug, PartialEq)]

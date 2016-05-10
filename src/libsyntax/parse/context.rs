@@ -13,7 +13,7 @@ use combine_language::{LanguageEnv, LanguageDef, Identifier};
 pub struct Context<'a, I> {
     file_name: Rc<String>,
     interner: &'a StrInterner,
-    lang_env: LanguageEnv<'a, I>,
+    env: LanguageEnv<'a, I>,
 }
 
 impl<'a, I> Context<'a, I>
@@ -23,7 +23,7 @@ impl<'a, I> Context<'a, I>
         Context {
             file_name: file_name,
             interner: interner,
-            lang_env: LanguageEnv::new(LanguageDef {
+            env: LanguageEnv::new(LanguageDef {
                 ident: Identifier {
                     start: letter(),
                     rest: alpha_num(),
@@ -84,19 +84,19 @@ impl<'a, I> Context<'a, I>
     }
 
     pub fn ident(&self, input: State<I>) -> ParseResult<Name, I> {
-        self.lang_env.identifier().map(|i| self.intern(&i)).parse_state(input)
+        self.env.identifier().map(|i| self.intern(&i)).parse_state(input)
     }
 
     // expression
     pub fn integer(&self, input: State<I>) -> ParseResult<Expr, I> {
-        self.with_pos(self.lang_env.integer().map(|i| ExprNode::IntLit(i))).parse_state(input)
+        self.with_pos(self.env.integer().map(|i| ExprNode::IntLit(i))).parse_state(input)
     }
 
     pub fn boolean(&self, input: State<I>) -> ParseResult<Expr, I> {
-        self.with_pos(self.lang_env
+        self.with_pos(self.env
                           .reserved("true")
                           .map(|_| ExprNode::BoolLit(true))
-                          .or(self.lang_env.reserved("false").map(|_| ExprNode::BoolLit(false))))
+                          .or(self.env.reserved("false").map(|_| ExprNode::BoolLit(false))))
             .parse_state(input)
     }
 
@@ -105,27 +105,44 @@ impl<'a, I> Context<'a, I>
             .parse_state(input)
     }
 
+    pub fn construct(&self, input: State<I>) -> ParseResult<Expr, I> {
+        let param = self.env
+                        .lex(env_parser(self, Context::<'a, I>::ident))
+                        .skip(self.env.lex(token(':')))
+                        .and(env_parser(self, Context::<'a, I>::expression));
+        let params = sep_end_by(self.env.lex(param), self.env.lex(token(',')));
+        let construct_parser = (self.env.lex(env_parser(self, Context::<'a, I>::ident)),
+                                self.env.braces(params));
+        self.with_pos(construct_parser.map(|(name, params)| {
+                ExprNode::Construct(ast::ConstructData {
+                    name: name,
+                    values: params,
+                })
+            }))
+            .parse_state(input)
+    }
+
     pub fn primary_expr(&self, input: State<I>) -> ParseResult<Expr, I> {
         let integer = env_parser(self, Context::<'a, I>::integer);
         let boolean = env_parser(self, Context::<'a, I>::boolean);
         let var = env_parser(self, Context::<'a, I>::var);
-        let parens = between(self.lang_env.lex(token('(')),
-                             self.lang_env.lex(token(')')),
+        let parens = between(self.env.lex(token('(')),
+                             self.env.lex(token(')')),
                              env_parser(self, Context::<'a, I>::expression));
         boolean.or(integer).or(var).or(parens).parse_state(input)
     }
 
     pub fn postfix_expr(&self, input: State<I>) -> ParseResult<Expr, I> {
-        let args = self.lang_env
-                       .parens(sep_end_by(self.lang_env
+        let args = self.env
+                       .parens(sep_end_by(self.env
                                               .lex(env_parser(self,
                                                               Context::<'a, I>::expression)),
-                                          self.lang_env.lex(token(','))));
+                                          self.env.lex(token(','))));
         let args = self.with_pos(args);
-        let ((mut func, args_vec), input) = try!((self.lang_env
+        let ((mut func, args_vec), input) = try!((self.env
                                                   .lex(env_parser(self,
                                                                   Context::<'a, I>::primary_expr)),
-                                              many::<Vec<_>, _>(self.lang_env.lex(args)))
+                                              many::<Vec<_>, _>(self.env.lex(args)))
                                                  .parse_state(input));
         for args_with_pos in args_vec {
             let pos = args_with_pos.position;
@@ -139,7 +156,7 @@ impl<'a, I> Context<'a, I>
     }
 
     pub fn expression(&self, input: State<I>) -> ParseResult<Expr, I> {
-        self.lang_env.lex(env_parser(self, Context::<'a, I>::postfix_expr)).parse_state(input)
+        self.env.lex(env_parser(self, Context::<'a, I>::postfix_expr)).parse_state(input)
     }
 
     // type
