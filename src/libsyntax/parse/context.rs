@@ -30,6 +30,7 @@ impl<'a, I> Context<'a, I>
                     rest: alpha_num(),
                     reserved: ["def",
                                "let",
+                               "return",
                                "implement",
                                "trait",
                                "struct",
@@ -200,8 +201,19 @@ impl<'a, I> Context<'a, I>
             .parse_state(input)
     }
 
+    fn return_stmt(&self, input: State<I>) -> ParseResult<Stmt, I> {
+        self.with_pos(self.env
+                          .reserved("return")
+                          .with(optional(env_parser(self, Context::<'a, I>::expression)))
+                          .skip(self.env.lex(token(';')))
+                          .map(StmtNode::Return))
+            .parse_state(input)
+    }
+
     pub fn statement(&self, input: State<I>) -> ParseResult<Stmt, I> {
-        env_parser(self, Context::<'a, I>::expr_stmt).parse_state(input)
+        try(env_parser(self, Context::<'a, I>::expr_stmt))
+            .or(env_parser(self, Context::<'a, I>::return_stmt))
+            .parse_state(input)
     }
 
     // type
@@ -317,5 +329,15 @@ mod tests {
         let result = parser.parse("1 + 2 * 3 <:> 4");
         assert!(result.is_ok());
         assert_eq!(result.unwrap().1, "");
+    }
+
+    #[test]
+    fn return_stmt() {
+        let interner = StrInterner::new();
+        let file = Rc::new("test".to_owned());
+        let ctx = Context::<&str>::new(file, &interner);
+        let mut parser = env_parser(&ctx, Context::statement);
+
+        assert_eq!(parser.parse("return 1 ; ").unwrap().1, "");
     }
 }
