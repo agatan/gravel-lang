@@ -7,8 +7,8 @@ use std::rc::Rc;
 use combine::primitives::{Consumed, ParseResult, State, Stream, SourcePosition};
 use combine::char::{string, letter, alpha_num};
 use combine::combinator::{Map, And, EnvParser};
-use combine::{Parser, ParserExt, between, satisfy, token, env_parser, sep_end_by, many};
-use combine_language::{LanguageEnv, LanguageDef, Identifier};
+use combine::{Parser, ParserExt, between, satisfy, token, env_parser, sep_end_by, many, try};
+use combine_language::{LanguageEnv, LanguageDef, Identifier, expression_parser, Assoc, Fixity};
 
 pub struct Context<'a, I> {
     file_name: Rc<String>,
@@ -125,11 +125,12 @@ impl<'a, I> Context<'a, I>
     pub fn primary_expr(&self, input: State<I>) -> ParseResult<Expr, I> {
         let integer = env_parser(self, Context::<'a, I>::integer);
         let boolean = env_parser(self, Context::<'a, I>::boolean);
+        let construct = try(env_parser(self, Context::<'a, I>::construct));
         let var = env_parser(self, Context::<'a, I>::var);
         let parens = between(self.env.lex(token('(')),
                              self.env.lex(token(')')),
                              env_parser(self, Context::<'a, I>::expression));
-        boolean.or(integer).or(var).or(parens).parse_state(input)
+        boolean.or(integer).or(construct).or(var).or(parens).parse_state(input)
     }
 
     pub fn postfix_expr(&self, input: State<I>) -> ParseResult<Expr, I> {
@@ -155,14 +156,73 @@ impl<'a, I> Context<'a, I>
         Ok((func, input))
     }
 
+    fn operator(&self, input: State<I>) -> ParseResult<(((Name, ast::BinopBase), Pos), Assoc), I> {
+        self.with_pos(self.env.op())
+            .map(|op_with_pos| {
+                let name = self.intern(&op_with_pos.node);
+                let (base, assoc) = op_assoc(&op_with_pos.node);
+                (((name, base), op_with_pos.position), assoc)
+            })
+            .parse_state(input)
+    }
+
+    pub fn binary_expr(&self, input: State<I>) -> ParseResult<Expr, I> {
+        expression_parser(env_parser(self, Context::<'a, I>::postfix_expr),
+                          try(env_parser(self, Context::<'a, I>::operator)),
+                          mk_binop)
+            .parse_state(input)
+    }
+
     pub fn expression(&self, input: State<I>) -> ParseResult<Expr, I> {
-        self.env.lex(env_parser(self, Context::<'a, I>::postfix_expr)).parse_state(input)
+        self.env.lex(env_parser(self, Context::<'a, I>::binary_expr)).parse_state(input)
     }
 
     // type
     pub fn parse_type(&self, input: State<I>) -> ParseResult<Type, I> {
         unimplemented!()
     }
+}
+
+fn mk_binop(lhs: Expr, (op, pos): ((Name, ast::BinopBase), Pos), rhs: Expr) -> Expr {
+    let binop_data = ast::BinopData {
+        op: op,
+        lhs: Box::new(lhs),
+        rhs: Box::new(rhs),
+    };
+    Expr::new(ExprNode::Binary(binop_data), pos)
+}
+
+fn op_assoc(op: &str) -> (ast::BinopBase, Assoc) {
+    if op.ends_with("=") {
+        return (ast::BinopBase::Right,
+                Assoc {
+            precedence: 0,
+            fixity: Fixity::Right,
+        });
+    }
+    let (base, fixity) = if op.ends_with(':') {
+        (ast::BinopBase::Right, Fixity::Right)
+    } else {
+        (ast::BinopBase::Left, Fixity::Left)
+    };
+
+    let prec = match op.chars().next().unwrap() {
+        '|' => 1,
+        '^' => 2,
+        '&' => 3,
+        '<' | '>' => 4,
+        '=' | '!' => 5,
+        ':' => 6,
+        '+' | '-' => 7,
+        '*' | '/' | '%' => 8,
+        _ => 9,
+    };
+
+    (base,
+     Assoc {
+        precedence: prec,
+        fixity: fixity,
+    })
 }
 
 #[cfg(test)]
@@ -196,6 +256,7 @@ mod tests {
         assert_eq!(parser.parse("true").unwrap().0.node,
                    ExprNode::BoolLit(true));
         assert_eq!(parser.parse("123").unwrap().0.node, ExprNode::IntLit(123));
+        assert_eq!(parser.parse("Point { x: 123 , y : 456 }").unwrap().1, "");
     }
 
     #[test]
@@ -206,5 +267,17 @@ mod tests {
         let mut parser = env_parser(&ctx, Context::expression);
 
         assert_eq!(parser.parse("hoge (1, 2, 3) ( f() )").unwrap().1, "");
+    }
+
+    #[test]
+    fn binary_expr() {
+        let interner = StrInterner::new();
+        let file = Rc::new("test".to_owned());
+        let ctx = Context::<&str>::new(file, &interner);
+        let mut parser = env_parser(&ctx, Context::expression);
+
+        let result = parser.parse("1 + 2 * 3 <:> 4");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().1, "");
     }
 }

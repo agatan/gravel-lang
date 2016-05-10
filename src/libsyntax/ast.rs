@@ -45,9 +45,18 @@ pub enum ExprNode {
     Block(BlockData),
 }
 
+/// binary expression's base direction.
+/// `a + b` and `a.+(b)` are same expression and `a + b`'s base is `Left`.
+/// `a :: b` and `b.::(a)` are same expression and `a :: b`'s base is `Right`.
+#[derive(Debug, PartialEq)]
+pub enum BinopBase {
+    Right,
+    Left,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct BinopData {
-    pub op: Name,
+    pub op: (Name, BinopBase),
     pub lhs: Box<Expr>,
     pub rhs: Box<Expr>,
 }
