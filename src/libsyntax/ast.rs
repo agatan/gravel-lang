@@ -139,7 +139,7 @@ pub type Type = WithPos<TypeNode>;
 pub enum TypeNode {
     Primary(Name), // int, bool, SomeStruct, SomeEnum
     Instantiate(Box<Type>, Vec<Type>), // List!(int), Option!(bool)
-    FuncPtr(FuncPtrData), // function(int, bool): String
+    FuncPtr(FuncPtrData), // func(int, bool): String
 }
 
 #[derive(Debug, PartialEq)]

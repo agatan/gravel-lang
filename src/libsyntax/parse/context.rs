@@ -31,6 +31,7 @@ impl<'a, I> Context<'a, I>
                     reserved: ["def",
                                "let",
                                "return",
+                               "func",
                                "implement",
                                "trait",
                                "struct",
@@ -240,8 +241,25 @@ impl<'a, I> Context<'a, I>
             .parse_state(input)
     }
 
+    fn funcptr_type(&self, input: State<I>) -> ParseResult<Type, I> {
+        let parser = (self.env.reserved("func"),
+                      self.env.parens(sep_by(env_parser(self, Context::<'a, I>::parse_type),
+                                             self.env.symbol(","))),
+                      self.env.reserved_op(":"),
+                      env_parser(self, Context::<'a, I>::parse_type));
+        self.with_pos(parser.map(|(_, params, _, ret)| {
+                TypeNode::FuncPtr(ast::FuncPtrData {
+                    params: params,
+                    ret: Box::new(ret),
+                })
+            }))
+            .parse_state(input)
+    }
+
     pub fn parse_type(&self, input: State<I>) -> ParseResult<Type, I> {
-        env_parser(self, Context::<'a, I>::instantiate_type).parse_state(input)
+        env_parser(self, Context::<'a, I>::funcptr_type)
+            .or(env_parser(self, Context::<'a, I>::instantiate_type))
+            .parse_state(input)
     }
 }
 
@@ -382,5 +400,16 @@ mod tests {
         let mut parser = env_parser(&ctx, Context::parse_type);
 
         assert_eq!(parser.parse("Generic!(int, Option!(bool))").unwrap().1, "");
+    }
+
+    #[test]
+    fn funcptr_type() {
+        let interner = StrInterner::new();
+        let file = Rc::new("test".to_owned());
+        let ctx = Context::<&str>::new(file, &interner);
+        let mut parser = env_parser(&ctx, Context::parse_type);
+
+        assert_eq!(parser.parse("func(Option!(int), bool): String").unwrap().1,
+                   "");
     }
 }
