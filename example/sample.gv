@@ -1,0 +1,39 @@
+// gravel compiler is not implemented yet...
+
+trait ToString {
+  def to_string() : String
+}
+
+enum List(T) {
+  Nil,
+  Cons(T, List!(T)),
+}
+
+implement(T: ToString) List!(T) {
+    def to_string(self) : String = match self {
+		Nil => "Nil",
+		Cons(t, rest) => t.to_string() ++ " :: " ++ rest.to_string(),
+	}
+}
+
+struct Point {
+	x: int,
+	y: int,
+}
+
+implement Point {
+	def to_string(self) : String =
+		"(" ++ x.to_string() ++ ", " ++ y.to_string() ++ ")"
+}
+
+def(T: ToString) print(t: T) = {
+	println(t.to_string())
+}
+
+def main() = {
+	let point = Point { x: 0, y: 0 };
+	let list = Cons(point, Cons(point, Nil));
+	print(list); // => (0, 0) :: (0, 0) :: Nil
+	let p: ToString = point; // Automatically converted to trait object
+	let l: ToString = list;
+}

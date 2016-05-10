@@ -6,3 +6,8 @@ pub struct Pos {
     line: i32,
     column: i32,
 }
+
+pub trait HasPos {
+    fn pos(&self) -> &Pos;
+    fn with_pos(self, pos: Pos) -> Self;
+}
