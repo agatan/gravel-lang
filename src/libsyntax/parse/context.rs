@@ -1,13 +1,14 @@
 use util::interner::StrInterner;
 use pos::Pos;
-use ast::{self, Name, Expr, ExprNode, Type};
+use ast::{self, Name, Expr, ExprNode, Stmt, StmtNode, Type};
 
 use std::rc::Rc;
 
 use combine::primitives::{Consumed, ParseResult, State, Stream, SourcePosition};
 use combine::char::{string, letter, alpha_num};
 use combine::combinator::{Map, And, EnvParser};
-use combine::{Parser, ParserExt, between, satisfy, token, env_parser, sep_end_by, many, try};
+use combine::{Parser, ParserExt, between, satisfy, token, env_parser, sep_end_by, many, try,
+              optional};
 use combine_language::{LanguageEnv, LanguageDef, Identifier, expression_parser, Assoc, Fixity};
 
 pub struct Context<'a, I> {
@@ -156,6 +157,20 @@ impl<'a, I> Context<'a, I>
         Ok((func, input))
     }
 
+    pub fn block_expr(&self, input: State<I>) -> ParseResult<Expr, I> {
+        let block = self.env
+                        .braces((many(try(env_parser(self, Context::<'a, I>::statement))),
+                                 optional(env_parser(self, Context::<'a, I>::expression)
+                                              .map(Box::new))))
+                        .map(|(ss, eopt)| {
+                            ExprNode::Block(ast::BlockData {
+                                stmts: ss,
+                                last_expr: eopt,
+                            })
+                        });
+        self.with_pos(block).parse_state(input)
+    }
+
     fn operator(&self, input: State<I>) -> ParseResult<(((Name, ast::BinopBase), Pos), Assoc), I> {
         self.with_pos(self.env.op())
             .map(|op_with_pos| {
@@ -167,7 +182,8 @@ impl<'a, I> Context<'a, I>
     }
 
     pub fn binary_expr(&self, input: State<I>) -> ParseResult<Expr, I> {
-        expression_parser(env_parser(self, Context::<'a, I>::postfix_expr),
+        expression_parser(env_parser(self, Context::<'a, I>::postfix_expr)
+                              .or(env_parser(self, Context::<'a, I>::block_expr)),
                           try(env_parser(self, Context::<'a, I>::operator)),
                           mk_binop)
             .parse_state(input)
@@ -175,6 +191,17 @@ impl<'a, I> Context<'a, I>
 
     pub fn expression(&self, input: State<I>) -> ParseResult<Expr, I> {
         self.env.lex(env_parser(self, Context::<'a, I>::binary_expr)).parse_state(input)
+    }
+
+    // statement
+    fn expr_stmt(&self, input: State<I>) -> ParseResult<Stmt, I> {
+        self.with_pos(env_parser(self, Context::<'a, I>::expression).map(StmtNode::Expr))
+            .skip(self.env.lex(token(';')))
+            .parse_state(input)
+    }
+
+    pub fn statement(&self, input: State<I>) -> ParseResult<Stmt, I> {
+        env_parser(self, Context::<'a, I>::expr_stmt).parse_state(input)
     }
 
     // type
@@ -267,6 +294,17 @@ mod tests {
         let mut parser = env_parser(&ctx, Context::expression);
 
         assert_eq!(parser.parse("hoge (1, 2, 3) ( f() )").unwrap().1, "");
+    }
+
+    #[test]
+    fn block_expr() {
+        let interner = StrInterner::new();
+        let file = Rc::new("test".to_owned());
+        let ctx = Context::<&str>::new(file, &interner);
+        let mut parser = env_parser(&ctx, Context::expression);
+
+        assert_eq!(parser.parse("{ 1; hoge(); }").unwrap().1, "");
+        assert_eq!(parser.parse("{ 1; hoge(); 3 }").unwrap().1, "");
     }
 
     #[test]
