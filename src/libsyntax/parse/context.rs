@@ -1,14 +1,14 @@
 use util::interner::StrInterner;
 use pos::Pos;
-use ast::{self, Name, Expr, ExprNode, Stmt, StmtNode, Type};
+use ast::{self, Name, Expr, ExprNode, Stmt, StmtNode, Type, TypeNode};
 
 use std::rc::Rc;
 
 use combine::primitives::{Consumed, ParseResult, State, Stream, SourcePosition};
 use combine::char::{string, letter, alpha_num};
 use combine::combinator::{Map, And, EnvParser};
-use combine::{Parser, ParserExt, between, satisfy, token, env_parser, sep_end_by, many, try,
-              optional};
+use combine::{Parser, ParserExt, between, satisfy, token, env_parser, sep_end_by, sep_by, many,
+              try, optional};
 use combine_language::{LanguageEnv, LanguageDef, Identifier, expression_parser, Assoc, Fixity};
 
 pub struct Context<'a, I> {
@@ -42,9 +42,9 @@ impl<'a, I> Context<'a, I>
                                   .collect(),
                 },
                 op: Identifier {
-                    start: satisfy(|c| "+-*/~@$%^&:<>?".chars().any(|x| x == c)),
-                    rest: satisfy(|c| "+-*/~@$%^&:<>?".chars().any(|x| x == c)),
-                    reserved: ["=>", ":", "="].iter().map(|x| (*x).into()).collect(),
+                    start: satisfy(|c| "+-*/~@$%^&:<>?!".chars().any(|x| x == c)),
+                    rest: satisfy(|c| "+-*/~@$%^&:<>?!".chars().any(|x| x == c)),
+                    reserved: ["=>", ":", "=", "!"].iter().map(|x| (*x).into()).collect(),
                 },
                 comment_start: string("/*").map(|_| ()),
                 comment_end: string("*/").map(|_| ()),
@@ -217,8 +217,31 @@ impl<'a, I> Context<'a, I>
     }
 
     // type
+    fn primary_type(&self, input: State<I>) -> ParseResult<Type, I> {
+        self.with_pos(env_parser(self, Context::<'a, I>::ident).map(TypeNode::Primary))
+            .parse_state(input)
+    }
+
+    fn instantiate_type(&self, input: State<I>) -> ParseResult<Type, I> {
+        let inst_arg =
+            self.with_pos(self.env
+                              .reserved_op("!")
+                              .with(self.env
+                                        .parens(sep_by(env_parser(self,
+                                                                  Context::<'a, I>::parse_type),
+                                                       self.env.symbol(",")))));
+        (env_parser(self, Context::<'a, I>::primary_type), many::<Vec<_>, _>(inst_arg))
+            .map(|(mut base, args_vec)| {
+                for ast::WithPos { node, position } in args_vec {
+                    base = Type::new(TypeNode::Instantiate(Box::new(base), node), position)
+                }
+                base
+            })
+            .parse_state(input)
+    }
+
     pub fn parse_type(&self, input: State<I>) -> ParseResult<Type, I> {
-        unimplemented!()
+        env_parser(self, Context::<'a, I>::instantiate_type).parse_state(input)
     }
 }
 
@@ -339,5 +362,25 @@ mod tests {
         let mut parser = env_parser(&ctx, Context::statement);
 
         assert_eq!(parser.parse("return 1 ; ").unwrap().1, "");
+    }
+
+    #[test]
+    fn primary_type() {
+        let interner = StrInterner::new();
+        let file = Rc::new("test".to_owned());
+        let ctx = Context::<&str>::new(file, &interner);
+        let mut parser = env_parser(&ctx, Context::parse_type);
+
+        assert_eq!(parser.parse("int").unwrap().1, "");
+    }
+
+    #[test]
+    fn instantiate_type() {
+        let interner = StrInterner::new();
+        let file = Rc::new("test".to_owned());
+        let ctx = Context::<&str>::new(file, &interner);
+        let mut parser = env_parser(&ctx, Context::parse_type);
+
+        assert_eq!(parser.parse("Generic!(int, Option!(bool))").unwrap().1, "");
     }
 }
