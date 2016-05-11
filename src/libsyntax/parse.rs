@@ -298,9 +298,9 @@ impl<'a, I> Context<'a, I>
     fn instantiate_type(&self, input: State<I>) -> ParseResult<Type, I> {
         let inst_arg =
             self.with_pos(self.env
-                              .reserved_op("!")
+                              .symbol("!")
                               .with(self.env
-                                        .parens(sep_by(env_parser(self,
+                                        .angles(sep_by(env_parser(self,
                                                                   Context::<'a, I>::parse_type),
                                                        self.env.symbol(",")))));
         (env_parser(self, Context::<'a, I>::primary_type), many::<Vec<_>, _>(inst_arg))
@@ -502,7 +502,7 @@ mod tests {
         let ctx = Context::<&str>::new(file, &interner);
         let mut parser = env_parser(&ctx, Context::parse_type);
 
-        assert_eq!(parser.parse("Generic!(int, Option!(bool))").unwrap().1, "");
+        assert_eq!(parser.parse("Generic!<int, Option!<bool>>").unwrap().1, "");
     }
 
     #[test]
@@ -512,7 +512,7 @@ mod tests {
         let ctx = Context::<&str>::new(file, &interner);
         let mut parser = env_parser(&ctx, Context::parse_type);
 
-        assert_eq!(parser.parse("func(Option!(int), bool): String").unwrap().1,
+        assert_eq!(parser.parse("func(Option!<int>, bool): String").unwrap().1,
                    "");
     }
 }
