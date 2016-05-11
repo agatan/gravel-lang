@@ -1,6 +1,6 @@
 use util::interner::StrInterner;
 use pos::Pos;
-use ast::{self, Name, Expr, ExprNode, Stmt, StmtNode, Type, TypeNode};
+use ast::{self, Name, Expr, ExprNode, Stmt, StmtNode, Def, DefNode, Type, TypeNode};
 
 use std::rc::Rc;
 
@@ -217,6 +217,56 @@ impl<'a, I> Context<'a, I>
             .parse_state(input)
     }
 
+    // definition
+    fn type_spec(&self, input: State<I>) -> ParseResult<Type, I> {
+        self.env
+            .reserved_op(":")
+            .with(env_parser(self, Context::<'a, I>::parse_type))
+            .parse_state(input)
+    }
+    fn let_def(&self, input: State<I>) -> ParseResult<Def, I> {
+        let parser = (self.env.reserved("let"),
+                      env_parser(self, Context::<'a, I>::ident),
+                      optional(env_parser(self, Context::<'a, I>::type_spec)),
+                      self.env.reserved_op("="),
+                      env_parser(self, Context::<'a, I>::expression),
+                      self.env.symbol(";"));
+        let let_def_parser = parser.map(|(_, name, typ, _, value, _)| {
+            DefNode::Let(ast::LetData {
+                sym: name,
+                typ: typ,
+                value: value,
+            })
+        });
+        self.with_pos(let_def_parser).parse_state(input)
+    }
+
+    fn func_def(&self, input: State<I>) -> ParseResult<Def, I> {
+        let param = (env_parser(self, Context::<'a, I>::ident),
+                     env_parser(self, Context::<'a, I>::type_spec));
+        let parser = (self.env.reserved("def"),
+                      env_parser(self, Context::<'a, I>::ident),
+                      self.env.parens(sep_by(param, self.env.symbol(","))),
+                      optional(env_parser(self, Context::<'a, I>::type_spec)),
+                      self.env.reserved_op("="),
+                      env_parser(self, Context::<'a, I>::expression));
+        let func_def_parser = parser.map(|(_, name, params, ret, _, body)| {
+            DefNode::Func(ast::FuncData {
+                name: name,
+                params: params,
+                ret: ret,
+                body: body,
+            })
+        });
+        self.with_pos(func_def_parser).parse_state(input)
+    }
+
+    pub fn definition(&self, input: State<I>) -> ParseResult<Def, I> {
+        env_parser(self, Context::<'a, I>::let_def)
+            .or(env_parser(self, Context::<'a, I>::func_def))
+            .parse_state(input)
+    }
+
     // type
     fn primary_type(&self, input: State<I>) -> ParseResult<Type, I> {
         self.with_pos(env_parser(self, Context::<'a, I>::ident).map(TypeNode::Primary))
@@ -380,6 +430,28 @@ mod tests {
         let mut parser = env_parser(&ctx, Context::statement);
 
         assert_eq!(parser.parse("return 1 ; ").unwrap().1, "");
+    }
+
+    #[test]
+    fn let_def() {
+        let interner = StrInterner::new();
+        let file = Rc::new("test".to_owned());
+        let ctx = Context::<&str>::new(file, &interner);
+        let mut parser = env_parser(&ctx, Context::definition);
+
+        assert_eq!(parser.parse("let x: int = 1;").unwrap().1, "");
+        assert_eq!(parser.parse("let x = 1;").unwrap().1, "");
+    }
+
+    #[test]
+    fn func_def() {
+        let interner = StrInterner::new();
+        let file = Rc::new("test".to_owned());
+        let ctx = Context::<&str>::new(file, &interner);
+        let mut parser = env_parser(&ctx, Context::definition);
+
+        assert_eq!(parser.parse("def f(x: int): int = 1").unwrap().1, "");
+        assert_eq!(parser.parse("def f() = g()").unwrap().1, "");
     }
 
     #[test]
