@@ -136,27 +136,64 @@ impl<'a, I> Context<'a, I>
         boolean.or(integer).or(construct).or(var).or(parens).parse_state(input)
     }
 
-    pub fn postfix_expr(&self, input: State<I>) -> ParseResult<Expr, I> {
-        let args = self.env
-                       .parens(sep_end_by(self.env
-                                              .lex(env_parser(self,
-                                                              Context::<'a, I>::expression)),
-                                          self.env.lex(token(','))));
-        let args = self.with_pos(args);
-        let ((mut func, args_vec), input) = try!((self.env
+    fn args(&self, input: State<I>) -> ParseResult<Vec<Expr>, I> {
+        let mut args = self.env
+                           .parens(sep_end_by(self.env
                                                   .lex(env_parser(self,
-                                                                  Context::<'a, I>::primary_expr)),
-                                              many::<Vec<_>, _>(self.env.lex(args)))
-                                                 .parse_state(input));
-        for args_with_pos in args_vec {
-            let pos = args_with_pos.position;
-            let calldata = ast::CallData {
-                callee: Box::new(func),
-                args: args_with_pos.node,
+                                                                  Context::<'a, I>::expression)),
+                                              self.env.lex(token(','))));
+        args.parse_state(input)
+    }
+
+    fn postfix(&self, input: State<I>) -> ParseResult<(Postfix, Pos), I> {
+        let func_apply = self.with_pos(env_parser(self, Context::<'a, I>::args))
+                             .map(|ast::WithPos { node, position }| {
+                                 (Postfix::Call(node), position)
+                             });
+        let field_or_method = env_parser(self, Context::<'a, I>::get_pos)
+                                  .skip(self.env.symbol("."))
+                                  .and(env_parser(self, Context::<'a, I>::ident))
+                                  .and(optional(env_parser(self, Context::<'a, I>::args)))
+                                  .map(|((pos, name), opt_args)| match opt_args {
+                                      None => (Postfix::Field(name), pos),
+                                      Some(args) => (Postfix::Method(name, args), pos),
+                                  });
+        func_apply.or(field_or_method).parse_state(input)
+    }
+
+    pub fn postfix_expr(&self, input: State<I>) -> ParseResult<Expr, I> {
+        let ((mut base, postfixes), input) = try!((env_parser(self, Context::<'a, I>::primary_expr),
+                                                   many::<Vec<_>,
+                                                          _>(env_parser(self,
+                                                                        Context::<'a, I>::postfix)))
+                                                      .parse_state(input));
+
+        for (postfix, pos) in postfixes {
+            let node = match postfix {
+                Postfix::Call(args) => {
+                    ExprNode::Call(ast::CallData {
+                        callee: Box::new(base),
+                        args: args,
+                    })
+                }
+                Postfix::Field(name) => {
+                    ExprNode::RefField(ast::RefFieldData {
+                        base: Box::new(base),
+                        field: name,
+                    })
+                }
+                Postfix::Method(name, args) => {
+                    ExprNode::MethodCall(ast::MethodCallData {
+                        reciever: Box::new(base),
+                        method: name,
+                        args: args,
+                    })
+                }
             };
-            func = Expr::new(ExprNode::Call(calldata), pos);
+            base = Expr::new(node, pos);
         }
-        Ok((func, input))
+
+        Ok((base, input))
     }
 
     pub fn block_expr(&self, input: State<I>) -> ParseResult<Expr, I> {
@@ -384,6 +421,12 @@ fn vec_option_to_vec<T>(v: Option<Vec<T>>) -> Vec<T> {
     }
 }
 
+enum Postfix {
+    Call(Vec<Expr>),
+    Field(Name),
+    Method(Name, Vec<Expr>),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -426,6 +469,10 @@ mod tests {
         let mut parser = env_parser(&ctx, Context::expression);
 
         assert_eq!(parser.parse("hoge (1, 2, 3) ( f() )").unwrap().1, "");
+        assert_eq!(parser.parse("value.method(1, 2)").unwrap().1, "");
+        assert_eq!(parser.parse("value.method").unwrap().1, "");
+        assert_eq!(parser.parse("value.field.method1()(1, 2).method2()").unwrap().1,
+                   "");
     }
 
     #[test]

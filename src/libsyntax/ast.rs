@@ -40,6 +40,8 @@ pub enum ExprNode {
     Binary(BinopData),
     Unary(UnaryData),
     Parens(Box<Expr>),
+    RefField(RefFieldData),
+    MethodCall(MethodCallData),
     Call(CallData),
     Construct(ConstructData),
     Block(BlockData),
@@ -65,6 +67,19 @@ pub struct BinopData {
 pub struct UnaryData {
     pub op: Name,
     pub operand: Box<Expr>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct RefFieldData {
+    pub base: Box<Expr>,
+    pub field: Name,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct MethodCallData {
+    pub reciever: Box<Expr>,
+    pub method: Name,
+    pub args: Vec<Expr>,
 }
 
 #[derive(Debug, PartialEq)]
