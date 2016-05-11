@@ -7,8 +7,8 @@ use std::rc::Rc;
 use combine::primitives::{Consumed, ParseResult, State, Stream, SourcePosition};
 use combine::char::{string, letter, alpha_num};
 use combine::combinator::{Map, And, EnvParser};
-use combine::{Parser, ParserExt, between, satisfy, token, env_parser, sep_end_by, sep_by, many,
-              try, optional};
+use combine::{Parser, ParserExt, between, satisfy, token, env_parser, sep_end_by, sep_by, sep_by1,
+              many, try, optional};
 use combine_language::{LanguageEnv, LanguageDef, Identifier, expression_parser, Assoc, Fixity};
 
 pub struct Context<'a, I> {
@@ -43,8 +43,8 @@ impl<'a, I> Context<'a, I>
                                   .collect(),
                 },
                 op: Identifier {
-                    start: satisfy(|c| "+-*/~@$%^&:<>?!".chars().any(|x| x == c)),
-                    rest: satisfy(|c| "+-*/~@$%^&:<>?!".chars().any(|x| x == c)),
+                    start: satisfy(|c| "+-*/~@$%^&:<>?".chars().any(|x| x == c)),
+                    rest: satisfy(|c| "+-*/~@$%^&:<>?".chars().any(|x| x == c)),
                     reserved: ["=>", ":", "=", "!"].iter().map(|x| (*x).into()).collect(),
                 },
                 comment_start: string("/*").map(|_| ()),
@@ -241,17 +241,39 @@ impl<'a, I> Context<'a, I>
         self.with_pos(let_def_parser).parse_state(input)
     }
 
+    // T: ToString + Eq
+    fn constraint(&self, input: State<I>) -> ParseResult<ast::Constraint, I> {
+        let parser = (env_parser(self, Context::<'a, I>::parse_type),
+                      optional(self.env
+                                   .reserved_op(":")
+                                   .with(sep_by1(env_parser(self, Context::<'a, I>::parse_type),
+                                                 self.env.symbol(",")))));
+        parser.map(|(type_var, traits)| {
+                  ast::Constraint {
+                      type_var: type_var,
+                      traits: vec_option_to_vec(traits),
+                  }
+              })
+              .parse_state(input)
+    }
+
     fn func_def(&self, input: State<I>) -> ParseResult<Def, I> {
         let param = (env_parser(self, Context::<'a, I>::ident),
                      env_parser(self, Context::<'a, I>::type_spec));
+        let opt_generic_params =
+            optional(self.env.angles(sep_by1(env_parser(self, Context::<'a, I>::constraint),
+                                             self.env.symbol(","))))
+                .map(vec_option_to_vec);
         let parser = (self.env.reserved("def"),
+                      opt_generic_params,
                       env_parser(self, Context::<'a, I>::ident),
                       self.env.parens(sep_by(param, self.env.symbol(","))),
                       optional(env_parser(self, Context::<'a, I>::type_spec)),
                       self.env.reserved_op("="),
                       env_parser(self, Context::<'a, I>::expression));
-        let func_def_parser = parser.map(|(_, name, params, ret, _, body)| {
+        let func_def_parser = parser.map(|(_, generic_params, name, params, ret, _, body)| {
             DefNode::Func(ast::FuncData {
+                generic_params: generic_params,
                 name: name,
                 params: params,
                 ret: ret,
@@ -341,7 +363,7 @@ fn op_assoc(op: &str) -> (ast::BinopBase, Assoc) {
         '^' => 2,
         '&' => 3,
         '<' | '>' => 4,
-        '=' | '!' => 5,
+        '=' => 5,
         ':' => 6,
         '+' | '-' => 7,
         '*' | '/' | '%' => 8,
@@ -353,6 +375,13 @@ fn op_assoc(op: &str) -> (ast::BinopBase, Assoc) {
         precedence: prec,
         fixity: fixity,
     })
+}
+
+fn vec_option_to_vec<T>(v: Option<Vec<T>>) -> Vec<T> {
+    match v {
+        None => Vec::new(),
+        Some(v) => v,
+    }
 }
 
 #[cfg(test)]
@@ -452,6 +481,8 @@ mod tests {
 
         assert_eq!(parser.parse("def f(x: int): int = 1").unwrap().1, "");
         assert_eq!(parser.parse("def f() = g()").unwrap().1, "");
+        assert_eq!(parser.parse("def<T: ToString> print(x: T) = g(x)").unwrap().1,
+                   "");
     }
 
     #[test]

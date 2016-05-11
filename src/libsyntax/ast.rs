@@ -102,7 +102,6 @@ pub type Def = WithPos<DefNode>;
 pub enum DefNode {
     Let(LetData),
     Func(FuncData),
-    Generic(GenericData),
 }
 
 #[derive(Debug, PartialEq)]
@@ -114,16 +113,11 @@ pub struct LetData {
 
 #[derive(Debug, PartialEq)]
 pub struct FuncData {
+    pub generic_params: Vec<Constraint>,
     pub name: Name,
     pub params: Vec<(Name, Type)>,
     pub ret: Option<Type>,
     pub body: Expr,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct GenericData {
-    pub constraints: Vec<Constraint>,
-    pub def: Box<Def>,
 }
 
 #[derive(Debug, PartialEq)]

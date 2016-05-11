@@ -4,12 +4,12 @@ trait ToString {
   def to_string() : String
 }
 
-enum List(T) {
+enum List<T> {
   Nil,
-  Cons(T, List!(T)),
+  Cons(T, List!<T>),
 }
 
-implement(T: ToString) List!(T) {
+implement<T: ToString> List!<T> {
     def to_string(self) : String = match self {
 		Nil => "Nil",
 		Cons(t, rest) => t.to_string() ++ " :: " ++ rest.to_string(),
@@ -26,7 +26,7 @@ implement Point {
 		"(" ++ x.to_string() ++ ", " ++ y.to_string() ++ ")"
 }
 
-def(T: ToString) print(t: T) = {
+def<T: ToString> print(t: T) = {
 	println(t.to_string())
 }
 
@@ -36,4 +36,5 @@ def main() = {
 	print(list); // => (0, 0) :: (0, 0) :: Nil
 	let p: ToString = point; // Automatically converted to trait object
 	let l: ToString = list;
+  let l : List!<int> = List!<int>::Cons(1, List!<int>::Nil);
 }
