@@ -7,8 +7,8 @@ use std::rc::Rc;
 use combine::primitives::{Consumed, ParseResult, State, Stream, SourcePosition};
 use combine::char::{string, letter, alpha_num};
 use combine::combinator::{Map, And, EnvParser};
-use combine::{Parser, ParserExt, between, satisfy, token, env_parser, sep_end_by, sep_by, sep_by1,
-              many, try, optional};
+use combine::{Parser, ParserExt, between, satisfy, token, env_parser, parser, sep_end_by, sep_by,
+              sep_by1, many, try, optional, value};
 use combine_language::{LanguageEnv, LanguageDef, Identifier, expression_parser, Assoc, Fixity};
 
 pub struct Context<'a, I> {
@@ -86,8 +86,20 @@ impl<'a, I> Context<'a, I>
             .map(mk_with_pos)
     }
 
+    fn ident_tail(&self, input: State<I>) -> ParseResult<String, I> {
+        self.env.lex(many(satisfy(|c: char| c.is_alphanumeric() || c == '_'))).parse_state(input)
+    }
+
     pub fn ident(&self, input: State<I>) -> ParseResult<Name, I> {
-        self.env.identifier().map(|i| self.intern(&i)).parse_state(input)
+        (satisfy(char::is_lowercase), env_parser(self, Context::<'a, I>::ident_tail))
+            .map(|(c, tail)| self.intern(&format!("{}{}", c, tail)))
+            .parse_state(input)
+    }
+
+    pub fn uident(&self, input: State<I>) -> ParseResult<Name, I> {
+        (satisfy(char::is_uppercase), env_parser(self, Context::<'a, I>::ident_tail))
+            .map(|(c, tail)| self.intern(&format!("{}{}", c, tail)))
+            .parse_state(input)
     }
 
     // expression
@@ -114,7 +126,7 @@ impl<'a, I> Context<'a, I>
                         .skip(self.env.lex(token(':')))
                         .and(env_parser(self, Context::<'a, I>::expression));
         let params = sep_end_by(self.env.lex(param), self.env.lex(token(',')));
-        let construct_parser = (self.env.lex(env_parser(self, Context::<'a, I>::ident)),
+        let construct_parser = (self.env.lex(env_parser(self, Context::<'a, I>::uident)),
                                 self.env.braces(params));
         self.with_pos(construct_parser.map(|(name, params)| {
                 ExprNode::Construct(ast::ConstructData {
@@ -328,7 +340,7 @@ impl<'a, I> Context<'a, I>
 
     // type
     fn primary_type(&self, input: State<I>) -> ParseResult<Type, I> {
-        self.with_pos(env_parser(self, Context::<'a, I>::ident).map(TypeNode::Primary))
+        self.with_pos(env_parser(self, Context::<'a, I>::uident).map(TypeNode::Primary))
             .parse_state(input)
     }
 
@@ -515,7 +527,7 @@ mod tests {
         let ctx = Context::<&str>::new(file, &interner);
         let mut parser = env_parser(&ctx, Context::definition);
 
-        assert_eq!(parser.parse("let x: int = 1;").unwrap().1, "");
+        assert_eq!(parser.parse("let x: Int = 1;").unwrap().1, "");
         assert_eq!(parser.parse("let x = 1;").unwrap().1, "");
     }
 
@@ -526,7 +538,7 @@ mod tests {
         let ctx = Context::<&str>::new(file, &interner);
         let mut parser = env_parser(&ctx, Context::definition);
 
-        assert_eq!(parser.parse("def f(x: int): int = 1").unwrap().1, "");
+        assert_eq!(parser.parse("def f(x: Int): Int = 1").unwrap().1, "");
         assert_eq!(parser.parse("def f() = g()").unwrap().1, "");
         assert_eq!(parser.parse("def<T: ToString> print(x: T) = g(x)").unwrap().1,
                    "");
@@ -539,7 +551,7 @@ mod tests {
         let ctx = Context::<&str>::new(file, &interner);
         let mut parser = env_parser(&ctx, Context::parse_type);
 
-        assert_eq!(parser.parse("int").unwrap().1, "");
+        assert_eq!(parser.parse("Int").unwrap().1, "");
     }
 
     #[test]
@@ -549,7 +561,7 @@ mod tests {
         let ctx = Context::<&str>::new(file, &interner);
         let mut parser = env_parser(&ctx, Context::parse_type);
 
-        assert_eq!(parser.parse("Generic!<int, Option!<bool>>").unwrap().1, "");
+        assert_eq!(parser.parse("Generic!<Int, Option!<Bool>>").unwrap().1, "");
     }
 
     #[test]
@@ -559,7 +571,7 @@ mod tests {
         let ctx = Context::<&str>::new(file, &interner);
         let mut parser = env_parser(&ctx, Context::parse_type);
 
-        assert_eq!(parser.parse("func(Option!<int>, bool): String").unwrap().1,
+        assert_eq!(parser.parse("func(Option!<Int>, Bool): String").unwrap().1,
                    "");
     }
 }
