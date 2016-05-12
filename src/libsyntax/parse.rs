@@ -120,19 +120,40 @@ impl<'a, I> Context<'a, I>
             .parse_state(input)
     }
 
-    pub fn construct(&self, input: State<I>) -> ParseResult<Expr, I> {
+    fn construct_args(&self, input: State<I>) -> ParseResult<ConstructArgs, I> {
         let param = self.env
                         .lex(env_parser(self, Context::<'a, I>::ident))
                         .skip(self.env.lex(token(':')))
                         .and(env_parser(self, Context::<'a, I>::expression));
         let params = sep_end_by(self.env.lex(param), self.env.lex(token(',')));
+        self.env
+            .braces(params)
+            .map(ConstructArgs::Record)
+            .or(optional(self.env
+                             .parens(sep_end_by(env_parser(self, Context::<'a, I>::expression),
+                                                self.env.symbol(","))))
+                    .map(|args| ConstructArgs::Enum(vec_option_to_vec(args))))
+            .parse_state(input)
+    }
+
+    pub fn construct(&self, input: State<I>) -> ParseResult<Expr, I> {
         let construct_parser = (self.env.lex(env_parser(self, Context::<'a, I>::uident)),
-                                self.env.braces(params));
-        self.with_pos(construct_parser.map(|(name, params)| {
-                ExprNode::Construct(ast::ConstructData {
-                    name: name,
-                    values: params,
-                })
+                                env_parser(self, Context::<'a, I>::construct_args));
+        self.with_pos(construct_parser.map(|(name, args)| {
+                match args {
+                    ConstructArgs::Record(params) => {
+                        ExprNode::RecordConstruct(ast::RecordConstructData {
+                            name: name,
+                            values: params,
+                        })
+                    }
+                    ConstructArgs::Enum(args) => {
+                        ExprNode::EnumConstruct(ast::EnumConstructData {
+                            name: name,
+                            values: args,
+                        })
+                    }
+                }
             }))
             .parse_state(input)
     }
@@ -439,6 +460,11 @@ enum Postfix {
     Method(Name, Vec<Expr>),
 }
 
+enum ConstructArgs {
+    Record(Vec<(Name, Expr)>),
+    Enum(Vec<Expr>),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,6 +497,8 @@ mod tests {
                    ExprNode::BoolLit(true));
         assert_eq!(parser.parse("123").unwrap().0.node, ExprNode::IntLit(123));
         assert_eq!(parser.parse("Point { x: 123 , y : 456 }").unwrap().1, "");
+        assert_eq!(parser.parse("None").unwrap().1, "");
+        assert_eq!(parser.parse("Some(1)").unwrap().1, "");
     }
 
     #[test]

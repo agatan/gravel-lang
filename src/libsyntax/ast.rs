@@ -43,7 +43,8 @@ pub enum ExprNode {
     RefField(RefFieldData),
     MethodCall(MethodCallData),
     Call(CallData),
-    Construct(ConstructData),
+    RecordConstruct(RecordConstructData),
+    EnumConstruct(EnumConstructData),
     Block(BlockData),
 }
 
@@ -89,9 +90,15 @@ pub struct CallData {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct ConstructData {
+pub struct RecordConstructData {
     pub name: Name,
     pub values: Vec<(Name, Expr)>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct EnumConstructData {
+    pub name: Name,
+    pub values: Vec<Expr>,
 }
 
 #[derive(Debug, PartialEq)]
