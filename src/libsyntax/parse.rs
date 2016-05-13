@@ -272,6 +272,11 @@ impl<'a, I> Context<'a, I>
             .parse_state(input)
     }
 
+    fn def_stmt(&self, input: State<I>) -> ParseResult<Stmt, I> {
+        self.with_pos(env_parser(self, Context::<'a, I>::definition).map(StmtNode::Def))
+            .parse_state(input)
+    }
+
     fn return_stmt(&self, input: State<I>) -> ParseResult<Stmt, I> {
         self.with_pos(self.env
                           .reserved("return")
@@ -283,6 +288,7 @@ impl<'a, I> Context<'a, I>
 
     pub fn statement(&self, input: State<I>) -> ParseResult<Stmt, I> {
         try(env_parser(self, Context::<'a, I>::expr_stmt))
+            .or(env_parser(self, Context::<'a, I>::def_stmt))
             .or(env_parser(self, Context::<'a, I>::return_stmt))
             .parse_state(input)
     }
@@ -523,7 +529,7 @@ mod tests {
         let mut parser = env_parser(&ctx, Context::expression);
 
         assert_eq!(parser.parse("{ 1; hoge(); }").unwrap().1, "");
-        assert_eq!(parser.parse("{ 1; hoge(); 3 }").unwrap().1, "");
+        assert_eq!(parser.parse("{ 1; hoge(); 3 + f()}").unwrap().1, "");
     }
 
     #[test]
@@ -536,6 +542,16 @@ mod tests {
         let result = parser.parse("1 + 2 * 3 <:> 4");
         assert!(result.is_ok());
         assert_eq!(result.unwrap().1, "");
+    }
+
+    #[test]
+    fn def_stmt() {
+        let interner = StrInterner::new();
+        let file = Rc::new("test".to_owned());
+        let ctx = Context::<&str>::new(file, &interner);
+        let mut parser = env_parser(&ctx, Context::statement);
+
+        assert_eq!(parser.parse("let x = 1 + 2;").unwrap().1, "");
     }
 
     #[test]
