@@ -125,6 +125,7 @@ pub enum DefNode {
     Let(LetData),
     Func(FuncData),
     Struct(StructData),
+    Enum(EnumData),
 }
 
 #[derive(Debug, PartialEq)]
@@ -148,6 +149,19 @@ pub struct StructData {
     pub generic_params: Vec<Constraint>,
     pub name: Name,
     pub params: Vec<(Name, Type)>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct EnumElem {
+    pub name: Name,
+    pub params: Vec<Type>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct EnumData {
+    pub generic_params: Vec<Constraint>,
+    pub name: Name,
+    pub elems: Vec<EnumElem>,
 }
 
 #[derive(Debug, PartialEq)]

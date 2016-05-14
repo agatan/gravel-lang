@@ -380,10 +380,41 @@ impl<'a, I> Context<'a, I>
             .parse_state(input)
     }
 
+    fn enum_def(&self, input: State<I>) -> ParseResult<Def, I> {
+        let elem = (env_parser(self, Context::<'a, I>::uident),
+                    optional(self.env
+                                 .parens(sep_by1(env_parser(self, Context::<'a, I>::parse_type),
+                                                 self.env.symbol(","))))
+                        .map(vec_option_to_vec))
+                       .map(|(name, params)| {
+                           ast::EnumElem {
+                               name: name,
+                               params: params,
+                           }
+                       });
+        let opt_generic_params =
+            optional(self.env.angles(sep_by1(env_parser(self, Context::<'a, I>::constraint),
+                                             self.env.symbol(","))))
+                .map(vec_option_to_vec);
+        let parser = (self.env.reserved("enum"),
+                      env_parser(self, Context::<'a, I>::uident),
+                      opt_generic_params,
+                      self.env.braces(many(elem.skip(self.env.symbol(";")))));
+        self.with_pos(parser.map(|(_, name, gen_params, elems)| {
+                DefNode::Enum(ast::EnumData {
+                    name: name,
+                    generic_params: gen_params,
+                    elems: elems,
+                })
+            }))
+            .parse_state(input)
+    }
+
     pub fn definition(&self, input: State<I>) -> ParseResult<Def, I> {
         env_parser(self, Context::<'a, I>::let_def)
             .or(env_parser(self, Context::<'a, I>::func_def))
             .or(env_parser(self, Context::<'a, I>::struct_def))
+            .or(env_parser(self, Context::<'a, I>::enum_def))
             .parse_state(input)
     }
 
@@ -620,6 +651,19 @@ mod tests {
         assert_eq!(parser.parse("struct Point { x: Int; y: Int; }").unwrap().1,
                    "");
         assert_eq!(parser.parse("struct Pair<T, U> { first: T; second: U; }").unwrap().1,
+                   "");
+    }
+
+    #[test]
+    fn enum_def() {
+        let interner = StrInterner::new();
+        let file = Rc::new("test".to_owned());
+        let ctx = Context::<&str>::new(file, &interner);
+        let mut parser = env_parser(&ctx, Context::definition);
+
+        assert_eq!(parser.parse("enum Option<T> { Some(T); None; }").unwrap().1,
+                   "");
+        assert_eq!(parser.parse("enum Direction { Left; Right; }").unwrap().1,
                    "");
     }
 
