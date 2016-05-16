@@ -191,3 +191,10 @@ pub struct FuncPtrData {
     pub params: Vec<Type>,
     pub ret: Box<Type>,
 }
+
+// module
+#[derive(Debug)]
+pub struct Module {
+    pub name: Name,
+    pub defs: Vec<Def>,
+}

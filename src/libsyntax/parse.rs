@@ -28,7 +28,8 @@ impl<'a, I> Context<'a, I>
                 ident: Identifier {
                     start: letter(),
                     rest: alpha_num(),
-                    reserved: ["def",
+                    reserved: ["module",
+                               "def",
                                "let",
                                "return",
                                "func",
@@ -462,6 +463,23 @@ impl<'a, I> Context<'a, I>
             .or(env_parser(self, Context::<'a, I>::instantiate_type))
             .parse_state(input)
     }
+
+    pub fn module(&self, input: State<I>) -> ParseResult<ast::Module, I> {
+        let module_name = (self.env.reserved("module"),
+                           env_parser(self, Context::<'a, I>::uident),
+                           self.env.symbol(";"))
+                              .map(|(_, name, _)| name);
+        let defs = many(env_parser(self, Context::<'a, I>::definition));
+
+        (module_name, defs)
+            .map(|(name, defs)| {
+                ast::Module {
+                    name: name,
+                    defs: defs,
+                }
+            })
+            .parse_state(input)
+    }
 }
 
 fn mk_binop(lhs: Expr, (op, pos): ((Name, ast::BinopBase), Pos), rhs: Expr) -> Expr {
@@ -696,5 +714,32 @@ mod tests {
 
         assert_eq!(parser.parse("func(Option!<Int>, Bool): String").unwrap().1,
                    "");
+    }
+
+    #[test]
+    fn module() {
+        let interner = StrInterner::new();
+        let file = Rc::new("test".to_owned());
+        let ctx = Context::<&str>::new(file, &interner);
+        let mut parser = env_parser(&ctx, Context::module);
+
+        let src = r#"module Test;
+
+                enum Option<T> {
+                    Some(T);
+                    None;
+                }
+                struct Point {
+                    x: Int;
+                    y: Int;
+                }
+
+                def add(x: Int) : Int = x + 1
+                def print_and_add(x: Int) : Int = {
+                    println(x);
+                    x + 1
+                }
+            "#;
+        assert_eq!(parser.parse(src).unwrap().1, "");
     }
 }
