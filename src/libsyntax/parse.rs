@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use combine::primitives::{Consumed, ParseResult, State, Stream, SourcePosition};
 use combine::char::{string, letter, alpha_num};
-use combine::combinator::{Map, And, EnvParser};
+use combine::combinator::{Map, And, EnvParser, eof};
 use combine::{Parser, ParserExt, between, satisfy, token, env_parser, parser, sep_end_by, sep_by,
               sep_by1, many, try, optional, value};
 use combine_language::{LanguageEnv, LanguageDef, Identifier, expression_parser, Assoc, Fixity};
@@ -471,8 +471,8 @@ impl<'a, I> Context<'a, I>
                               .map(|(_, name, _)| name);
         let defs = many(env_parser(self, Context::<'a, I>::definition));
 
-        (module_name, defs)
-            .map(|(name, defs)| {
+        (self.env.white_space(), module_name, defs, eof())
+            .map(|(_, name, defs, _)| {
                 ast::Module {
                     name: name,
                     defs: defs,
